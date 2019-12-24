@@ -5,11 +5,11 @@ with open("README.md", "r") as fh:
     long_description = fh.read()
 
 setuptools.setup(
-    name="afniRTI-for_usenet", # Replace with your own username
+    name="afniRTI",
     version="2.7.0",
     author="V. R-singh",
     author_email="for_usenet@yahoo.com",
-    description="AFNI real-time interface in Python",
+    description="AFNI Real-Time Interface in Python",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/roopchansinghv/afni-real-time-interface-in-python",
