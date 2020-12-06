@@ -114,6 +114,7 @@ class RTInterface(object):
 
       log.debug('-- listen()...')
       try:
+         self.server_sock.settimeout(None)
          self.server_sock.listen(2)
       except(socket.error, socket.herror, socket.gaierror, socket.timeout):
          log.error('** failed to listen at incoming socket')
