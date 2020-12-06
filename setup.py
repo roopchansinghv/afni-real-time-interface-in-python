@@ -6,7 +6,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="afniRTI",
-    version="3.0.0",
+    version="3.0.1",
     author="V. R-singh",
     author_email="for_usenet@yahoo.com",
     description="AFNI Real-Time Interface in Python",
