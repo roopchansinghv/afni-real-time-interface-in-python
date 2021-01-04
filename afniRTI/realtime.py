@@ -49,14 +49,16 @@ class RTInterface(object):
       self.swap            = False              # byte-swap binary numbers
 
       # per-run variables
-      self.version         = 0                  # 0,1,2: for extra data
+      self.version         = 0                  # 0..4: specifies extra data
       self.nextra          = 0                  # if version > 0
+      self.nextra2         = 0                  # if version == 4
       self.nread           = 0                  # TRs of data read, per connect
 
       # per-run accumulated data variables
       self.motion          = []                 # accumulate: 6 lists of vals
       self.extras          = []                 # accumulate: nextra lists
-      # (each of length nread)
+                                                # (each of length nread)
+      self.extra2          = []                 # accumulate: nextra2 lists
 
       # TCP connection variables
       self.server_port     = port               # listen for connections here
@@ -79,15 +81,18 @@ class RTInterface(object):
 
       """clear variables that vary per run"""
 
-      self.version   = 0
-      self.nextra    = 0
-      self.nread     = 0
+      self.version      = 0
+      self.nextra       = 0
+      self.nextra2      = 0
+      self.nread        = 0
 
       # nuke lists that could use a lot of memory
       del(self.motion)
       self.motion = []
       del(self.extras)
       self.extras = []
+      del(self.extra2)
+      self.extra2 = []
 
 
 
@@ -157,7 +162,6 @@ class RTInterface(object):
          log.error('** failed recv() of %d bytes from data socket' % nbytes)
          return None
 
-      # TODO: might be TOO verbose
       log.debug("++ read %d bytes from socket: %s" %
                 (nbytes, data_to_hex_str([v for v in data])))
 
@@ -282,7 +286,7 @@ class RTInterface(object):
       if self.version == 0:
          pass        # we're good to go
 
-      elif self.version == 1 or self.version == 2:
+      elif self.version >= 1 and self.version <= 3:
 
          # ------------------------------------------------------------
          # read the next 4-byte int to determine the number of extra data
@@ -298,10 +302,33 @@ class RTInterface(object):
             log.warning('** received invalid num_extra = %d' % ilist[0])
          elif self.version == 1:
             self.nextra = ilist[0]
-         else:  # version = 2
+         elif self.version == 2:
             self.nextra = ilist[0] * 8
+         else: # version = 3
+            self.nextra = ilist[0]
 
          log.debug('-- num extra = %d' % self.nextra)
+
+      elif self.version == 4:
+         ilist = self.read_ints_from_socket(2)
+
+         if ilist is None:
+            return 1
+
+         if len(ilist) < 2:
+            log.warning('** HELLO version 4: could not read 2 ints from socket')
+            return 1
+
+         if ilist[0] < 0:
+            log.warning('** received invalid num_extra = %d' % ilist[0])
+
+         if ilist[1] < 0:
+            log.warning('** received invalid num_ones = %d'  % ilist[1])
+
+         self.nextra  = ilist[0]     # number of ROI means
+         self.nextra2 = ilist[1]     # number of mask==1 voxel values
+
+         log.debug('-- num extra = %d, nextra2 = %d' % (self.nextra, self.nextra2))
 
       else:     # bad, naughty version!
          log.error('** HELLO string trailer is not magic, want %s but have %s' \
@@ -309,6 +336,7 @@ class RTInterface(object):
          return 1
 
       # todo - show_time()
+
       return 0
 
 
@@ -368,7 +396,7 @@ class RTInterface(object):
       log.debug('-- displaying data for TR %d' % tr)
 
       mprefix = "++ recv motion:     "
-      if self.version == 1:
+      if self.version in [1,3,4]:
          eprefix = "++ recv %d extras:   " % self.nextra
       elif self.version == 2:
          eprefix = "++ recv %dx8 extras: " % (self.nextra // 8)
@@ -378,16 +406,42 @@ class RTInterface(object):
 
       # version 1, all on one line
       if self.version == 1 and self.nextra > 0:
-         log.info(gen_float_list_string([self.extras[i][tr] for i in
-                                        range(self.nextra)], mesg=eprefix, nchar=10, left=1))
+         print_floats_one_line(self.extras, self.nextra, tr, eprefix)
+
       # version 2, each voxel on one line
-      elif self.version == 2 and self.nextra > 0:
-         elen = len(eprefix) + 1
-         log.info("%s %s" % (eprefix, gen_float_list_string([self.extras[i][tr]
-                                                            for i in range(8)], mesg='', nchar=10, left=1)))
-         for off in range(self.nextra // 8 - 1):
-                log.info(gen_float_list_string([self.extras[8 * off + 8 + i][tr]
-                                               for i in range(8)], mesg=' ' * elen, nchar=10, left=1))
+      elif self.version in [2,3] and self.nextra > 0:
+         print_floats_multi_line(self.extras, self.nextra, tr, eprefix)
+
+      # version 4, ADDITIONALLY show extras2
+      elif self.version == 4 and (self.nextra > 0 or self.nextra2 > 0):
+         ep2 = "++ recv %d extra2:   "%(self.nextra2)
+         print_floats_multi_line(self.extras, self.nextra,  tr, eprefix)
+         print_floats_multi_line(self.extra2, self.nextra2, tr, ep2)
+
+
+
+   def print_floats_one_line(self, data, nvals, tr, mesg):
+
+      print(gen_float_list_string([data[i][tr] for i in range(nvals)],
+                                  mesg=mesg, nchar=10, left=1))
+
+
+
+   def print_floats_multi_line(self, data, nvals, tr, mesg):
+
+      print(mesg, end = ' ')
+      elen = len(mesg) + `1
+
+      # show all multiples of 8 vals
+      for off in range(nvals // 8):
+         print(gen_float_list_string([data[8 * off + i][tr] for i in range(8)],
+                                      mesg = ' ' * elen, nchar = 10, left = 1))
+      # show the remaining
+      base = (nvals // 8) * 8
+      remain = nvals % 8
+      if remain:
+         print(gen_float_list_string([data[base + i][tr] for i in range(remain)],
+                                     mesg = '', nchar = 10, left = 1))
 
 
 
@@ -431,16 +485,29 @@ class RTInterface(object):
       for ind in range(6):
          self.motion[ind].append(motion[ind])
 
+      log.debug('== current motion[0]: %s' % self.motion[0])
+
       # read and append extra values
-      extra = None
       if self.nextra > 0:
          extra = self.read_floats_from_socket(self.nextra)
          if not extra:
             log.error('** failed to read %d extras for TR %d' %
                       (self.nextra, self.nread + 1))
             return None, None
+         log.info('== extras[%d]: %s' % (self.nextra, values))
          for ind in range(self.nextra):
             self.extras[ind].append(extra[ind])
+
+      # read and append extra2 values
+      if self.nextra2 > 0:
+         extra2 = self.read_floats_from_socket(self.nextra2)
+         if not extra2:
+            log.error('** failed to read %d extra2 for TR %d' %
+                      (self.nextra2, self.nread+1))
+            return 1
+         log.info('== extras2[%d]: %s' % (self.nextra2, extra2))
+         for ind in range(self.nextra2):
+            self.extra2[ind].append(extra2[ind])
 
       # possibly display TR data
       if self.show_times:
@@ -450,27 +517,39 @@ class RTInterface(object):
 
       self.nread += 1
 
-      return motion, extra
+      if self.nextra2 > 0:
+         return motion, extra, extra2
+      else:
+         return motion, extra
 
 
 
    def read_all_socket_data(self):
 
       # initialize lists
-      self.motion = [[] for i in range(6)]            # array of 6 lists
-      self.extras = [[] for i in range(self.nextra)]  # array of nextra lists
+      self.motion = [[] for i in range(6)]              # array of 6 lists
+      self.extras = [[] for i in range(self.nextra)]    # array of nextra lists
+      self.extra2 = [[] for i in range(self.nextra2)]   # array of nextra2 lists
 
-      while True:
-         motion, extra = self.read_TR_data()
-         if not motion:
-            break   # for good or ill, we are done
-         pass       # PROCESS DATA HERE
+      rv = 0
+      while rv == 0:
+         rv = self.read_TR_data()
+         if rv:
+            break                   # for good or ill, we are done
+         pass                       # PROCESS DATA HERE
 
-      log.info('-- processed %d TRs of data' % self.nread)
-      log.info('-' * 60)
+      log.debug('-- processed %d TRs of data' % self.nread, end=' ')
+      if rv > 0:
+         log.info('(terminating on success)')
+      else:
+         log.info('(terminating on error)')
 
-      return 0
+      log.info('-'*60)
 
+      if rv > 0:
+         return 0               # success for one run
+      else:
+         return 1               # some error
 
 
    def wait_for_new_run(self):
@@ -487,6 +566,7 @@ class RTInterface(object):
       # initialize lists
       self.motion = [[] for i in range(6)]              # array of 6 lists
       self.extras = [[] for i in range(self.nextra)]    # array of nextra lists
+      self.extra2 = [[] for i in range(self.nextra2)]   # array of nextra2 lists
 
       return 0
 
@@ -502,6 +582,8 @@ class RTInterface(object):
          self.data_sock = None
 
       log.debug('-- socket has been closed')
+
+      return
 
 
 
@@ -531,9 +613,10 @@ class SerialInterface(object):
          log.error('** no file to open as serial port')
          return 1
 
-      log.debug('-- opening serial port' + self.port_file)
+      log.debug('-- opening serial port %s' % self.port_file)
 
       # open port_file at baud 9600, 8 bit N parity, 1 stop bit
+      errs = 0
       try:
          port = serial.Serial()
          port.setPort(self.port_file)
@@ -547,16 +630,19 @@ class SerialInterface(object):
          log.error('** failed to initialize serial port %s' % self.port_file)
          return 1
 
-      try:
-         port.open()
-      except(socket.error, socket.herror, socket.gaierror, socket.timeout):
-         log.error(sys.exc_info()[1])
-         log.error('** failed to open serial port %s' % self.port_file)
-         return 1
+      if errs == 0:
+         try:
+            port.open()
+         except(socket.error, socket.herror, socket.gaierror, socket.timeout):
+            log.error(sys.exc_info()[1])
+            log.error('** failed to open serial port %s' % self.port_file)
+            errs = 1
 
-      self.data_port = port
-      log.debug('++ serial port %s is open' % self.port_file)
-      return 0
+      if errs == 0:
+         self.data_port = port
+         log.debug('++ serial port %s is open' % self.port_file)
+
+      return errs
 
 
 
@@ -596,6 +682,87 @@ class SerialInterface(object):
 
       self.data_port.write(dstring)
       del(dstring)
+      return 0
+
+
+
+class TextFileInterface(object):
+
+   """interface class to deal with writing to text file"""
+
+   def __init__(self, fname='-', append=1, verb=1):
+      # main variables
+      self.fname        = fname         # text file name
+      self.fp           = None          # file object
+      self.append       = append        # whether to append (or overwrite)
+      self.sep          = '\t'          # tab separation is default
+      self.verb         = verb          # verbose level
+
+      log.debug('++ initializing text interface for %s' % fname)
+
+
+
+   def open_text_file(self):
+      if not self.fname:
+         log.error('** no text file to open')
+         return 1
+
+      if self.append:
+         mode = 'a'
+      else:
+         mode = 'w'
+      log.info("-- will write data to file %s, mode '%s'" % (self.fname, mode))
+
+      if self.fname == '-' or self.fname == 'stdout':
+         self.fp = sys.stdout
+      elif self.fname == 'stderr':
+         self.fp = sys.stderr
+      else:
+         if self.append:
+            mode = 'a'
+         else:
+            mode = 'w'
+         try:
+            self.fp = open(self.fname, mode)
+         except:
+            log.error("** failed to open file %s, mode '%s'" % (self.fname, mode))
+            return 1
+
+      log.debug('++ text file is open')
+
+      return 0
+
+
+
+   def close_text_file(self):
+
+      if self.fp != None:
+         if self.fp != sys.stdout and self.fp != sys.stderr:
+            self.fp.close()
+         self.fp = None
+
+      log.debug('-- text file has been closed')
+
+      return 0
+
+
+
+   def write_data_line(self, data):
+
+      """write all floats/ints to the text file"""
+
+      if not self.fp:
+         return
+
+      log.debug('++ writing data to text file: %s' % data)
+
+      # convert list of values to text
+      textary = ['%s' % val for val in data]
+      self.fp.write('%s\n' % self.sep.join(textary))
+      self.fp.flush()
+
+      del(textary)
+
       return 0
 
 
