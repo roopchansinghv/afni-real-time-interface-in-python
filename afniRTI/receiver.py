@@ -18,7 +18,7 @@ class ReceiverInterface(object):
 
 
 
-   def __init__(self, port=None, swap=False, show_data=False, serial_port=None):
+   def __init__(self, port=None, swap=False, show_data=False, serial_port=None, text_file=None):
 
       # real-time interface RTInterface
       if port:
@@ -36,6 +36,12 @@ class ReceiverInterface(object):
          self.SER = rt.SerialInterface(serial_port)
       else:
          self.SER = None
+
+      # text file interface
+      if text_file:
+         self.TEXT = rt.TextFileInterface(text_file)
+      else
+         self.TEXT = None
 
       # callbacks
       self.compute_TR_data = None
@@ -56,6 +62,8 @@ class ReceiverInterface(object):
          self.RTI.close_data_ports()
       if self.SER:
          self.SER.close_data_ports()
+      if self.TEXT:
+         self.TEXT.close_text_file()
 
 
 
@@ -103,6 +111,8 @@ class ReceiverInterface(object):
 
       if self.SER:
          self.SER.write_4byte_data(data)
+      if self.TEXT:
+         self.TEXT.write_data_line(data)
 
       return 0
 
@@ -149,6 +159,11 @@ class ReceiverInterface(object):
       log.info('++ signal handler called with signal %d' % signum)
 
       self.RTI.close_data_ports()
+
+      try:
+         sys.stdout.flush()
+      except:
+         pass
 
       # at last, close server port
       if self.RTI.server_sock:
