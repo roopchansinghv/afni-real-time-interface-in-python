@@ -40,7 +40,7 @@ class ReceiverInterface(object):
       # text file interface
       if text_file:
          self.TEXT = rt.TextFileInterface(text_file)
-      else
+      else:
          self.TEXT = None
 
       # callbacks

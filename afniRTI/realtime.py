@@ -430,7 +430,7 @@ class RTInterface(object):
    def print_floats_multi_line(self, data, nvals, tr, mesg):
 
       print(mesg, end = ' ')
-      elen = len(mesg) + `1
+      elen = len(mesg) + 1
 
       # show all multiples of 8 vals
       for off in range(nvals // 8):
@@ -494,7 +494,7 @@ class RTInterface(object):
             log.error('** failed to read %d extras for TR %d' %
                       (self.nextra, self.nread + 1))
             return None, None
-         log.info('== extras[%d]: %s' % (self.nextra, values))
+         log.info('== extras[%d]: %s' % (self.nextra, extra))
          for ind in range(self.nextra):
             self.extras[ind].append(extra[ind])
 
